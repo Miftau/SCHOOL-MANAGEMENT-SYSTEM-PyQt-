@@ -1,29 +1,28 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QDialog
 from authentication import LoginWindow  # Assuming you've placed the LoginDialog in its own file or above
-from dashboard import AdminDashboard, TeacherDashboard, StudentDashboard, ParentDashboard
+from admin_dashboard import AdminDashboard
+from teacher_dashboard import TeacherDashboard
+from student_dashboard import StudentDashboard
+from parent_dashboard import ParentDashboard
+import traceback
+import sqlite3
 import json  # For user data handling
 
 from sign_up import SignUpWindow
-
 
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("School Management System")
 
-        # Step 1: Show the login window
-        self.login_window = LoginWindow()
-        self.signup_window = SignUpWindow()
+        # Show the login dialog modally
+        login_dialog = LoginWindow()
+        result = login_dialog.exec()
 
-        if self.login_window.exec() == QDialog.Accepted:
-            # Step 2: Retrieve the role and user data after successful login
-            self.user_data = self.login_window.get_user_data()  # Assuming login_window returns user data
-            role = self.user_data['role']  # Extract user role (admin, teacher, student, parent)
-            self.launch_dashboard(role)
-
-        elif self.signup_window:
-            self.signup_window.exec()
+        if result == QDialog.Accepted:
+            self.user_data = login_dialog.user_data
+            self.launch_dashboard(self.user_data['role'])
         else:
             sys.exit()
 
@@ -31,7 +30,7 @@ class MainApp(QMainWindow):
         """Close login window and launch appropriate dashboard."""
         self.close()  # Close the login/main window
         if role == "admin":
-            self.dashboard = AdminDashboard(self.user_data)  # Pass user data to AdminDashboard
+            self.dashboard = AdminDashboard()  # Pass user data to AdminDashboard
         elif role == "teacher":
             self.dashboard = TeacherDashboard(self.user_data)  # Pass user data to TeacherDashboard
         elif role == "student":
@@ -41,7 +40,21 @@ class MainApp(QMainWindow):
         self.dashboard.show()
 
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    main_window = MainApp()
-    sys.exit(app.exec_())
+#if __name__ == '__main__':
+    #app = QApplication(sys.argv)
+    #main_window = MainApp()
+    #sys.exit(app.exec_())
+
+
+def main():
+    try:
+        app = QApplication(sys.argv)
+        window = MainApp()
+        window.show()
+        sys.exit(app.exec_())
+    except Exception as e:
+        print("Fatal Error:", e)
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()

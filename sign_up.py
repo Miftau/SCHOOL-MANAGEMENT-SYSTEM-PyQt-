@@ -1,79 +1,78 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFormLayout, QMessageBox, QDialog
-from PyQt5.QtCore import Qt
+import bcrypt
+from PyQt5.QtWidgets import (
+    QVBoxLayout, QLineEdit, QPushButton, QFormLayout,
+    QMessageBox, QDialog, QComboBox
+)
+import requests
+import json
 import sqlite3
+import os
+from config import DB_PATH
 
+
+def get_connection():
+    return sqlite3.connect(DB_PATH)
 
 class SignUpWindow(QDialog):
     def __init__(self, user_id=None):
         super().__init__()
-
         self.setWindowTitle("Sign Up / Update")
         self.resize(800, 700)
+        self.user_id = user_id
 
         self.layout = QVBoxLayout()
-
-        # Form Layout
         self.form_layout = QFormLayout()
 
-        # Add fields
-        self.username_field = QLineEdit(self)
-        self.email_field = QLineEdit(self)
-        self.password_field = QLineEdit(self)
+        self.username_field = QLineEdit()
+        self.email_field = QLineEdit()
+        self.password_field = QLineEdit()
         self.password_field.setEchoMode(QLineEdit.Password)
-        self.confirm_password_field = QLineEdit(self)
+        self.confirm_password_field = QLineEdit()
         self.confirm_password_field.setEchoMode(QLineEdit.Password)
-        self.role_field = QLineEdit(self)
+        self.role_field = QComboBox()
+
+        self.role_field.addItems(["Admin", "Teacher", "Student", "Parent"])
 
         self.form_layout.addRow("Username:", self.username_field)
         self.form_layout.addRow("Email:", self.email_field)
         self.form_layout.addRow("Password:", self.password_field)
         self.form_layout.addRow("Confirm Password:", self.confirm_password_field)
-        self.form_layout.addRow("Role (Admin/Teacher/Student):", self.role_field)
+        self.form_layout.addRow("Role:", self.role_field)
 
         self.layout.addLayout(self.form_layout)
 
-        # SignUp/Update Button
-        self.signup_button = QPushButton("Sign Up", self)
+        self.signup_button = QPushButton("Sign Up")
         self.signup_button.clicked.connect(self.signup_or_update_user)
         self.layout.addWidget(self.signup_button)
 
         self.setLayout(self.layout)
 
-        # If user_id is provided, it's for updating existing user
-        self.user_id = user_id
         if self.user_id:
             self.load_user_data()
 
     def load_user_data(self):
-        # Load existing user data for update
-        conn = sqlite3.connect('school_management.db')
+        conn = get_connection()
         cursor = conn.cursor()
-
         cursor.execute("SELECT * FROM users WHERE id = ?", (self.user_id,))
         user = cursor.fetchone()
-
-        if user:
-            self.username_field.setText(user[1])  # username
-            self.email_field.setText(user[2])  # email
-            self.password_field.setText(user[3])  # password
-            self.confirm_password_field.setText(user[3])  # confirm password
-            self.role_field.setText(user[4])  # role
-
         conn.close()
 
-        # Change button text to 'Update'
-        self.signup_button.setText("Update")
+        if user:
+            self.username_field.setText(user[1])
+            self.email_field.setText(user[2])
+            self.password_field.setText("")
+            self.confirm_password_field.setText("")
+            self.role_field.setCurrentText(user[4].capitalize())
+            self.signup_button.setText("Update")
 
     def signup_or_update_user(self):
-        # Get values from form
-        username = self.username_field.text()
-        email = self.email_field.text()
+        username = self.username_field.text().strip()
+        email = self.email_field.text().strip()
         password = self.password_field.text()
         confirm_password = self.confirm_password_field.text()
-        role = self.role_field.text()
+        role = self.role_field.currentText().strip().lower()
 
-        # Validation
-        if not username or not email or not password or not confirm_password or not role:
+        if not all([username, email, password, confirm_password, role]):
             self.show_message("Error", "All fields are required.")
             return
 
@@ -85,70 +84,91 @@ class SignUpWindow(QDialog):
             self.show_message("Error", "Invalid email format.")
             return
 
-        if self.user_id:  # If user exists, update their data
-            self.update_user_in_db(username, email, password, role)
-        else:  # If no user_id, sign up new user
-            self.save_user_to_db(username, email, password, role)
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-        # After successful operation, show success message
-        self.show_message("Success", "Operation successful!")
+        use_remote = False
 
-        # Close SignUp window
+        if self.user_id:
+            if use_remote:
+                self.update_user_remote(username, email, hashed_password, role)
+            else:
+                self.update_user_in_db(username, email, hashed_password, role)
+        else:
+            if self.user_exists(username, email):
+                self.show_message("Error", "Username or Email already exists.")
+                return
+
+            if use_remote:
+                self.signup_user_remote(username, email, hashed_password, role)
+            else:
+                self.save_user_to_db(username, email, hashed_password, role)
+                self.show_message("Success", "User created successfully.")
+                self.close()
+
+    def save_user_to_db(self, username, email, hashed_password, role):
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)",
+                       (username, email, hashed_password, role))
+        conn.commit()
+        conn.close()
+
+    def update_user_in_db(self, username, email, hashed_password, role):
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET username=?, email=?, password=?, role=? WHERE id=?",
+                       (username, email, hashed_password, role, self.user_id))
+        conn.commit()
+        conn.close()
+        self.show_message("Success", "User updated successfully.")
         self.close()
 
+    def user_exists(self, username, email):
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE username=? OR email=?", (username, email))
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
+
     def is_valid_email(self, email):
-        return "@" in email and "." in email  # Simple email validation
+        return "@" in email and "." in email
 
-    def save_user_to_db(self, username, email, password, role):
-        # Connect to SQLite DB (you can replace with actual DB logic)
-        conn = sqlite3.connect('school_management.db')
-        cursor = conn.cursor()
+    def signup_user_remote(self, username, email, password, role):
+        try:
+            response = requests.post("http://127.0.0.1:5000/signup",
+                                     headers={"Content-Type": "application/json"},
+                                     data=json.dumps({
+                                         "username": username,
+                                         "email": email,
+                                         "password": password,
+                                         "role": role
+                                     }))
+            if response.status_code == 201:
+                self.show_message("Success", "User created successfully.")
+                self.close()
+            else:
+                self.show_message("Error", response.json().get("message", "Failed to register user."))
+        except requests.exceptions.RequestException as e:
+            self.show_message("Network Error", str(e))
 
-        # Create the user table if not exists
-        cursor.execute('''CREATE TABLE IF NOT EXISTS users
-                          (
-                              id
-                              INTEGER
-                              PRIMARY
-                              KEY
-                              AUTOINCREMENT,
-                              username
-                              TEXT
-                              NOT
-                              NULL,
-                              email
-                              TEXT
-                              NOT
-                              NULL,
-                              password
-                              TEXT
-                              NOT
-                              NULL,
-                              role
-                              TEXT
-                              NOT
-                              NULL
-                          )''')
-
-        # Insert new user into the users table
-        cursor.execute("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)",
-                       (username, email, password, role))
-
-        # Commit and close connection
-        conn.commit()
-        conn.close()
-
-    def update_user_in_db(self, username, email, password, role):
-        # Update existing user in the database
-        conn = sqlite3.connect('school_management.db')
-        cursor = conn.cursor()
-
-        cursor.execute("UPDATE users SET username = ?, email = ?, password = ?, role = ? WHERE id = ?",
-                       (username, email, password, role, self.user_id))
-
-        # Commit and close connection
-        conn.commit()
-        conn.close()
+    def update_user_remote(self, username, email, password, role):
+        try:
+            response = requests.put(f"http://127.0.0.1:5000/update_user/{self.user_id}",
+                                    headers={"Content-Type": "application/json"},
+                                    data=json.dumps({
+                                        "username": username,
+                                        "email": email,
+                                        "password": password,
+                                        "role": role
+                                    }))
+            if response.status_code == 200:
+                self.show_message("Success", "User updated successfully.")
+                self.close()
+            else:
+                self.show_message("Error", response.json().get("message", "Failed to update user."))
+        except requests.exceptions.RequestException as e:
+            self.show_message("Network Error", str(e))
 
     def show_message(self, title, message):
         msg = QMessageBox()

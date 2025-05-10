@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QHBoxLayout
 from PyQt5.QtCore import Qt
 import sqlite3
+from add_user_dialog import AddUserDialog
 
 class AdminDashboard(QWidget):
     def __init__(self):
@@ -32,6 +33,13 @@ class AdminDashboard(QWidget):
         self.layout.addWidget(self.logout_button)
 
         self.setLayout(self.layout)
+
+    def open_add_user_dialog(self):
+        self.add_user_btn = QPushButton("Add New User")
+        self.add_user_btn.clicked.connect(self.open_add_user_dialog)
+        dialog = AddUserDialog()
+        dialog.exec_()
+
 
     def load_users(self):
         # Connect to the database
